@@ -208,17 +208,9 @@ endif()
 
 set(LIBS )
 
-# SDL2
-find_package(SDL2 REQUIRED)
-if(NINTENDO_SWITCH)
-  if(NOT SDL2_LIBRARY OR NOT SDL2_INCLUDE_DIR)
-    # sometimes FindSDL2 just wants us to suffer and does not set these
-    set(SDL2_LIBRARY "SDL2")
-    set(SDL2_INCLUDE_DIR "${DEVKITPRO}/portlibs/switch/include/SDL2")
-  endif()
-endif()
-include_directories(SYSTEM "${SDL2_INCLUDE_DIR}")
-list(APPEND LIBS "${SDL2_LIBRARY}")
+# SDL3
+find_package(SDL3 REQUIRED CONFIG REQUIRED COMPONENTS SDL3)
+list(APPEND LIBS SDL3::SDL3)
 
 # ZLib
 find_package(ZLIB REQUIRED)

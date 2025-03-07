@@ -1,6 +1,8 @@
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 #include <ctype.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <PR/ultratypes.h>
 #include <PR/os_thread.h>
 #include <PR/os_cont.h>
@@ -11,10 +13,11 @@
 #include "utils.h"
 #include "system.h"
 #include "fs.h"
+#include "../fast3d/gfx_sdl.h"
 
 #if !SDL_VERSION_ATLEAST(2, 0, 14)
 // this was added in 2.0.14
-#define SDL_CONTROLLER_TYPE_VIRTUAL SDL_CONTROLLER_TYPE_UNKNOWN
+#define SDL_GAMEPAD_TYPE_VIRTUAL SDL_GAMEPAD_TYPE_UNKNOWN
 #endif
 
 #define CONTROLLERDB_FNAME "gamecontrollerdb.txt"
@@ -25,20 +28,20 @@
 #define DEFAULT_DEADZONE 4096
 #define DEFAULT_DEADZONE_RY 6144
 
-#define WHEEL_UP_MASK SDL_BUTTON(VK_MOUSE_WHEEL_UP - VK_MOUSE_BEGIN + 1)
-#define WHEEL_DN_MASK SDL_BUTTON(VK_MOUSE_WHEEL_DN - VK_MOUSE_BEGIN + 1)
+#define WHEEL_UP_MASK SDL_BUTTON_MASK(VK_MOUSE_WHEEL_UP - VK_MOUSE_BEGIN + 1)
+#define WHEEL_DN_MASK SDL_BUTTON_MASK(VK_MOUSE_WHEEL_DN - VK_MOUSE_BEGIN + 1)
 
 #define CURSOR_HIDE_THRESHOLD 1
 #define CURSOR_HIDE_TIME 3000000 // us
 
-static SDL_GameController *pads[INPUT_MAX_CONTROLLERS];
+static SDL_Gamepad *pads[INPUT_MAX_CONTROLLERS];
 
 #define CONTROLLERCFG_DEFAULT { \
 	.rumbleOn = 0, \
 	.rumbleScale = 0.5f, \
 	.axisMap = { \
-		{ SDL_CONTROLLER_AXIS_LEFTX,  SDL_CONTROLLER_AXIS_LEFTY  }, \
-		{ SDL_CONTROLLER_AXIS_RIGHTX, SDL_CONTROLLER_AXIS_RIGHTY }, \
+		{ SDL_GAMEPAD_AXIS_LEFTX,  SDL_GAMEPAD_AXIS_LEFTY  }, \
+		{ SDL_GAMEPAD_AXIS_RIGHTX, SDL_GAMEPAD_AXIS_RIGHTY }, \
 	}, \
 	.sens = { 1.f, 1.f, 1.f, 1.f }, \
 	.deadzone = { DEFAULT_DEADZONE, DEFAULT_DEADZONE, DEFAULT_DEADZONE, DEFAULT_DEADZONE_RY }, \
@@ -210,22 +213,22 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 	};
 
 	static const u32 pcjoybinds[][2] = {
-		{ CK_A,      SDL_CONTROLLER_BUTTON_A             },
-		{ CK_X,      SDL_CONTROLLER_BUTTON_X             },
-		{ CK_Y,      SDL_CONTROLLER_BUTTON_Y             },
-		{ CK_DPAD_L, SDL_CONTROLLER_BUTTON_B,            },
-		{ CK_DPAD_D, SDL_CONTROLLER_BUTTON_LEFTSHOULDER  },
-		{ CK_LTRIG,  SDL_CONTROLLER_BUTTON_RIGHTSHOULDER },
+		{ CK_A,      SDL_GAMEPAD_BUTTON_SOUTH             },
+		{ CK_X,      SDL_GAMEPAD_BUTTON_WEST             },
+		{ CK_Y,      SDL_GAMEPAD_BUTTON_NORTH             },
+		{ CK_DPAD_L, SDL_GAMEPAD_BUTTON_EAST,            },
+		{ CK_DPAD_D, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER  },
+		{ CK_LTRIG,  SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER },
 		{ CK_RTRIG,  VK_JOY1_LTRIG - VK_JOY1_BEGIN       },
 		{ CK_ZTRIG,  VK_JOY1_RTRIG - VK_JOY1_BEGIN       },
-		{ CK_START,  SDL_CONTROLLER_BUTTON_START         },
-		{ CK_C_D,    SDL_CONTROLLER_BUTTON_DPAD_DOWN     },
-		{ CK_C_U,    SDL_CONTROLLER_BUTTON_DPAD_UP       },
-		{ CK_C_R,    SDL_CONTROLLER_BUTTON_DPAD_RIGHT    },
-		{ CK_C_L,    SDL_CONTROLLER_BUTTON_DPAD_LEFT     },
-		{ CK_ACCEPT, SDL_CONTROLLER_BUTTON_A             },
-		{ CK_CANCEL, SDL_CONTROLLER_BUTTON_B             },
-		{ CK_8000,   SDL_CONTROLLER_BUTTON_LEFTSTICK     },
+		{ CK_START,  SDL_GAMEPAD_BUTTON_START         },
+		{ CK_C_D,    SDL_GAMEPAD_BUTTON_DPAD_DOWN     },
+		{ CK_C_U,    SDL_GAMEPAD_BUTTON_DPAD_UP       },
+		{ CK_C_R,    SDL_GAMEPAD_BUTTON_DPAD_RIGHT    },
+		{ CK_C_L,    SDL_GAMEPAD_BUTTON_DPAD_LEFT     },
+		{ CK_ACCEPT, SDL_GAMEPAD_BUTTON_SOUTH             },
+		{ CK_CANCEL, SDL_GAMEPAD_BUTTON_EAST             },
+		{ CK_8000,   SDL_GAMEPAD_BUTTON_LEFT_STICK     },
 	};
 
 	static const u32 n64kbbinds[][3] = {
@@ -250,16 +253,16 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 	};
 
 	static const u32 n64joybinds[][2] = {
-		{ CK_A,      SDL_CONTROLLER_BUTTON_A             },
-		{ CK_B,      SDL_CONTROLLER_BUTTON_B             },
-		{ CK_LTRIG,  SDL_CONTROLLER_BUTTON_LEFTSHOULDER  },
-		{ CK_RTRIG,  SDL_CONTROLLER_BUTTON_RIGHTSHOULDER },
+		{ CK_A,      SDL_GAMEPAD_BUTTON_SOUTH             },
+		{ CK_B,      SDL_GAMEPAD_BUTTON_EAST             },
+		{ CK_LTRIG,  SDL_GAMEPAD_BUTTON_LEFT_SHOULDER  },
+		{ CK_RTRIG,  SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER },
 		{ CK_ZTRIG,  VK_JOY1_RTRIG - VK_JOY1_BEGIN       },
-		{ CK_START,  SDL_CONTROLLER_BUTTON_START         },
-		{ CK_DPAD_D, SDL_CONTROLLER_BUTTON_DPAD_DOWN     },
-		{ CK_DPAD_U, SDL_CONTROLLER_BUTTON_DPAD_UP       },
-		{ CK_DPAD_L, SDL_CONTROLLER_BUTTON_DPAD_LEFT     },
-		{ CK_DPAD_R, SDL_CONTROLLER_BUTTON_DPAD_RIGHT    },
+		{ CK_START,  SDL_GAMEPAD_BUTTON_START         },
+		{ CK_DPAD_D, SDL_GAMEPAD_BUTTON_DPAD_DOWN     },
+		{ CK_DPAD_U, SDL_GAMEPAD_BUTTON_DPAD_UP       },
+		{ CK_DPAD_L, SDL_GAMEPAD_BUTTON_DPAD_LEFT     },
+		{ CK_DPAD_R, SDL_GAMEPAD_BUTTON_DPAD_RIGHT    },
 	};
 
 	memset(binds[cidx], 0, sizeof(binds[cidx]));
@@ -296,37 +299,39 @@ void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 }
 
 static inline s32 inputDeviceIndexFromId(const SDL_JoystickID id) {
+	const SDL_JoystickID *joysticks = SDL_GetJoysticks(NULL);
 	for (s32 jidx = 0; jidx < numJoysticks; ++jidx) {
-		if (SDL_JoystickGetDeviceInstanceID(jidx) == id) {
+		if (joysticks[jidx] == id) {
 			return jidx;
 		}
 	}
 	return -1;
 }
 
-static inline SDL_JoystickID inputControllerGetId(SDL_GameController *ctrl)
+static inline SDL_JoystickID inputControllerGetId(SDL_Gamepad *ctrl)
 {
-	return SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(ctrl));
+	return SDL_GetJoystickID(SDL_GetGamepadJoystick(ctrl));
 }
 
 static inline void inputInitController(const s32 cidx, const s32 jidx)
 {
 #if SDL_VERSION_ATLEAST(2, 0, 18)
-	// SDL_GameControllerHasRumble() appeared in 2.0.18 even though SDL_GameControllerRumble() is in 2.0.9
-	padsCfg[cidx].rumbleOn = SDL_GameControllerHasRumble(pads[cidx]);
+	// SDL_GameControllerHasRumble() appeared in 2.0.18 even though SDL_RumbleGamepad() is in 2.0.9
+	SDL_PropertiesID padProps = SDL_GetGamepadProperties(pads[cidx]);
+	padsCfg[cidx].rumbleOn = SDL_GetBooleanProperty(padProps, SDL_PROP_GAMEPAD_CAP_RUMBLE_BOOLEAN, false);
 #else
 	// assume that all joysticks with haptic feedback support will support rumble
-	padsCfg[cidx].rumbleOn = SDL_JoystickIsHaptic(SDL_GameControllerGetJoystick(pads[cidx]));
+	padsCfg[cidx].rumbleOn = SDL_IsJoystickHaptic(SDL_GetGamepadJoystick(pads[cidx]));
 	if (!padsCfg[cidx].rumbleOn) {
 		// at least on Windows some controllers will report no haptics, but rumble will still function
 		// just assume it's supported if the controller is of known type
-		const SDL_GameControllerType ctype = SDL_GameControllerGetType(pads[cidx]);
-		padsCfg[cidx].rumbleOn = ctype && (ctype != SDL_CONTROLLER_TYPE_VIRTUAL);
+		const SDL_GamepadType ctype = SDL_GetGamepadType(pads[cidx]);
+		padsCfg[cidx].rumbleOn = ctype && (ctype != SDL_GAMEPAD_TYPE_VIRTUAL);
 	}
 #endif
 
 	// make the LEDs on the controller indicate which player it's for
-	SDL_GameControllerSetPlayerIndex(pads[cidx], cidx);
+	SDL_SetGamepadPlayerIndex(pads[cidx], cidx);
 
 	// remember the joystick index
 	padsCfg[cidx].deviceIndex = jidx;
@@ -334,13 +339,14 @@ static inline void inputInitController(const s32 cidx, const s32 jidx)
 	connectedMask |= (1 << cidx);
 
 	sysLogPrintf(LOG_NOTE, "input: assigned controller '%d: (%s)' (id %d) to player %d",
-		jidx, SDL_GameControllerName(pads[cidx]), inputControllerGetId(pads[cidx]), cidx);
+		jidx, SDL_GetGamepadName(pads[cidx]),
+		inputControllerGetId(pads[cidx]), cidx);
 
-	SDL_Joystick* joy = SDL_GameControllerGetJoystick(pads[cidx]);
+	SDL_Joystick* joy = SDL_GetGamepadJoystick(pads[cidx]);
 	if (joy) {
 		char guidStr[1024] = "";
-		SDL_JoystickGUID guid = SDL_JoystickGetGUID(joy);
-		SDL_JoystickGetGUIDString(guid, guidStr, sizeof(guidStr));
+		SDL_GUID guid = SDL_GetJoystickGUID(joy);
+		SDL_GUIDToString(guid, guidStr, sizeof(guidStr));
 		sysLogPrintf(LOG_NOTE, "input: GUID for controller %d: %s", jidx, guidStr);
 	}
 }
@@ -348,12 +354,13 @@ static inline void inputInitController(const s32 cidx, const s32 jidx)
 static inline void inputCloseController(const s32 cidx)
 {
 	sysLogPrintf(LOG_NOTE, "input: removed controller '%d: (%s)' (id %d) from player %d",
-		padsCfg[cidx].deviceIndex, SDL_GameControllerName(pads[cidx]), inputControllerGetId(pads[cidx]), cidx);
+		padsCfg[cidx].deviceIndex, SDL_GetGamepadName(pads[cidx]),
+		inputControllerGetId(pads[cidx]), cidx);
 
 	// reset player LEDs
-	SDL_GameControllerSetPlayerIndex(pads[cidx], -1);
+	SDL_SetGamepadPlayerIndex(pads[cidx], -1);
 
-	SDL_GameControllerClose(pads[cidx]);
+	SDL_CloseGamepad(pads[cidx]);
 
 	pads[cidx] = NULL;
 	padsCfg[cidx].rumbleOn = 0;
@@ -363,7 +370,7 @@ static inline void inputCloseController(const s32 cidx)
 	}
 }
 
-static inline s32 inputControllerGetIndex(SDL_GameController *ctrl)
+static inline s32 inputControllerGetIndex(SDL_Gamepad *ctrl)
 {
 	if (ctrl) {
 		for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
@@ -412,7 +419,9 @@ static inline void inputCloseAllControllers(void)
 static inline s32 inputTryController(const s32 cidx, const s32 jidx)
 {
 	if (!pads[cidx]) {
-		pads[cidx] = SDL_GameControllerOpen(jidx);
+		const SDL_JoystickID *joysticks = SDL_GetJoysticks(NULL);
+		const SDL_JoystickID jid = joysticks[jidx];
+		pads[cidx] = SDL_OpenGamepad(jid);
 		if (pads[cidx]) {
 			inputInitController(cidx, jidx);
 			return 1;
@@ -423,9 +432,9 @@ static inline s32 inputTryController(const s32 cidx, const s32 jidx)
 
 static inline void inputInitAllControllers(void)
 {
-	SDL_GameControllerUpdate();
+	SDL_UpdateGamepads();
 
-	numJoysticks = SDL_NumJoysticks();
+	const SDL_JoystickID *joysticks = SDL_GetJoysticks(&numJoysticks);
 
 	connectedMask = 1; // always report first controller as connected
 
@@ -434,7 +443,7 @@ static inline void inputInitAllControllers(void)
 	for (s32 cidx = 0; cidx < INPUT_MAX_CONTROLLERS; ++cidx) {
 		const s32 jidx = padsCfg[cidx].deviceIndex;
 		if (jidx >= 0 && jidx < numJoysticks) {
-			if (SDL_IsGameController(jidx) && inputControllerGetIndexByDeviceIndex(jidx) < 0) {
+			if (SDL_IsGamepad(joysticks[jidx]) && inputControllerGetIndexByDeviceIndex(jidx) < 0) {
 				// using the full assign function in case user sets same index for several players
 				if (inputTryController(cidx, jidx)) {
 					// success
@@ -448,7 +457,7 @@ static inline void inputInitAllControllers(void)
 
 	// now try autofilling the rest, starting with firstController
 	for (s32 jidx = 0; jidx < numJoysticks; ++jidx) {
-		if (SDL_IsGameController(jidx) && inputControllerGetIndexByDeviceIndex(jidx) < 0) {
+		if (SDL_IsGamepad(joysticks[jidx]) && inputControllerGetIndexByDeviceIndex(jidx) < 0) {
 			for (s32 cidx = firstController; cidx < INPUT_MAX_CONTROLLERS; ++cidx) {
 				if (inputTryController(cidx, jidx)) {
 					break;
@@ -463,23 +472,24 @@ static inline void inputInitAllControllers(void)
 	}
 }
 
-static int inputEventFilter(void *data, SDL_Event *event)
+static bool inputEventFilter(void *data, SDL_Event *event)
 {
 	switch (event->type) {
-		case SDL_CONTROLLERDEVICEADDED:
+		case SDL_EVENT_GAMEPAD_ADDED :
 			for (s32 i = firstController; i < INPUT_MAX_CONTROLLERS; ++i) {
 				if (!pads[i]) {
-					pads[i] = SDL_GameControllerOpen(event->cdevice.which);
+					pads[i] = SDL_OpenGamepad(event->gdevice.which);
 					if (pads[i]) {
-						inputInitController(i, event->cdevice.which);
+						inputInitController(i,
+								    event->gdevice.which);
 					}
 					break;
 				}
 			}
 			break;
 
-		case SDL_CONTROLLERDEVICEREMOVED: {
-			SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
+		case SDL_EVENT_GAMEPAD_REMOVED : {
+			SDL_Gamepad *ctrl = SDL_GetGamepadFromID(event->gdevice.which);
 			const s32 idx = inputControllerGetIndex(ctrl);
 			if (idx >= 0) {
 				inputCloseController(idx);
@@ -488,34 +498,33 @@ static int inputEventFilter(void *data, SDL_Event *event)
 			break;
 		}
 
-		case SDL_JOYDEVICEADDED:
-		case SDL_JOYDEVICEREMOVED:
-			numJoysticks = SDL_NumJoysticks(); // joystick count has changed
+		case SDL_EVENT_JOYSTICK_ADDED :
+		case SDL_EVENT_JOYSTICK_REMOVED :
+			SDL_GetJoysticks(&numJoysticks); // joystick count has changed
 			break;
 
-		case SDL_MOUSEWHEEL:
+		case SDL_EVENT_MOUSE_WHEEL :
 			mouseWheel = event->wheel.y;
 			if (!lastKey && mouseWheel) {
 				lastKey = (mouseWheel < 0) + VK_MOUSE_WHEEL_UP;
 			}
 			break;
 
-		case SDL_MOUSEBUTTONDOWN:
+		case SDL_EVENT_MOUSE_BUTTON_DOWN :
 			if (!lastKey) {
 				lastKey = VK_MOUSE_BEGIN - 1 + event->button.button;
 			}
 			break;
-
-		case SDL_KEYDOWN:
+		case SDL_EVENT_KEY_DOWN :
 			if (!lastKey) {
-				lastKey = VK_KEYBOARD_BEGIN + event->key.keysym.scancode;
+				lastKey = VK_KEYBOARD_BEGIN + event->key.scancode;
 			}
 			break;
 
-		case SDL_CONTROLLERBUTTONDOWN:
+		case SDL_EVENT_GAMEPAD_BUTTON_DOWN :
 			if (!lastKey) {
-				lastKey = VK_JOY1_BEGIN + event->cbutton.button;
-				SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
+				lastKey = VK_JOY1_BEGIN + event->gbutton.button;
+				SDL_Gamepad *ctrl = SDL_GetGamepadFromID(event->gdevice.which);
 				const s32 idx = inputControllerGetIndex(ctrl);
 				if (idx >= 0) {
 					lastKey += idx * INPUT_MAX_CONTROLLER_BUTTONS;
@@ -523,11 +532,11 @@ static int inputEventFilter(void *data, SDL_Event *event)
 			}
 			break;
 
-		case SDL_CONTROLLERAXISMOTION:
+		case SDL_EVENT_GAMEPAD_AXIS_MOTION :
 			if (!lastKey) {
-				if (event->caxis.axis >= SDL_CONTROLLER_AXIS_TRIGGERLEFT && event->caxis.value > TRIG_THRESHOLD) {
-					lastKey = VK_JOY1_LTRIG + (event->caxis.axis - SDL_CONTROLLER_AXIS_TRIGGERLEFT);
-					SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
+				if (event->gaxis.axis >= SDL_GAMEPAD_AXIS_LEFT_TRIGGER && event->gaxis.value > TRIG_THRESHOLD) {
+					lastKey = VK_JOY1_LTRIG + (event->gaxis.axis - SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+					SDL_Gamepad *ctrl = SDL_GetGamepadFromID(event->gdevice.which);
 					const s32 idx = inputControllerGetIndex(ctrl);
 					if (idx >= 0) {
 						lastKey += idx * INPUT_MAX_CONTROLLER_BUTTONS;
@@ -536,7 +545,7 @@ static int inputEventFilter(void *data, SDL_Event *event)
 			}
 			break;
 
-		case SDL_TEXTINPUT:
+		case SDL_EVENT_TEXT_INPUT :
 			if (!lastChar && event->text.text[0] && (u8)event->text.text[0] < 0x80) {
 				lastChar = event->text.text[0];
 			}
@@ -674,14 +683,14 @@ static inline void inputLoadBinds(void)
 
 s32 inputInit(void)
 {
-	if (!SDL_WasInit(SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC)) {
-		SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC);
+	if (!SDL_WasInit(SDL_INIT_GAMEPAD | SDL_INIT_HAPTIC)) {
+		SDL_InitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_HAPTIC);
 	}
 
 	// try to load controller db from an external file in the save folder
 	if (fsFileSize("$S/" CONTROLLERDB_FNAME)) {
 		const char *dbpath = fsFullPath("$S/" CONTROLLERDB_FNAME);
-		const s32 dbcount = SDL_GameControllerAddMappingsFromFile(dbpath);
+		const s32 dbcount = SDL_AddGamepadMappingsFromFile(dbpath);
 		if (dbcount >= 0) {
 			sysLogPrintf(LOG_NOTE, "input: added %d controller mappings from %s", dbcount, dbpath);
 		}
@@ -786,10 +795,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		return 0;
 	}
 
-	s32 leftX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][0]);
-	s32 leftY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[0][1]);
-	s32 rightX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][0]);
-	s32 rightY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][1]);
+	s32 leftX = SDL_GetGamepadAxis(pads[idx], cfg->axisMap[0][0]);
+	s32 leftY = SDL_GetGamepadAxis(pads[idx], cfg->axisMap[0][1]);
+	s32 rightX = SDL_GetGamepadAxis(pads[idx], cfg->axisMap[1][0]);
+	s32 rightY = SDL_GetGamepadAxis(pads[idx], cfg->axisMap[1][1]);
 
 	leftX = inputAxisScale(leftX, cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]);
 	leftY = inputAxisScale(leftY, cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]);
@@ -829,7 +838,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 
 static inline void inputUpdateMouse(void)
 {
-	s32 mx, my;
+	f32 mx, my;
 	mouseButtons = SDL_GetMouseState(&mx, &my);
 
 	if (mouseWheel > 0) {
@@ -840,8 +849,8 @@ static inline void inputUpdateMouse(void)
 
 	mouseWheel = 0;
 
-	s32 mdx = 0;
-	s32 mdy = 0;
+	f32 mdx = 0;
+	f32 mdy = 0;
 	SDL_GetRelativeMouseState(&mdx, &mdy);
 	if (mouseLocked) {
 		mouseDX = mdx;
@@ -871,7 +880,7 @@ static inline void inputUpdateMouse(void)
 
 void inputUpdate(void)
 {
-	SDL_GameControllerUpdate();
+	SDL_UpdateGamepads();
 
 	if (mouseEnabled) {
 		inputUpdateMouse();
@@ -913,7 +922,7 @@ void inputRumble(s32 idx, f32 strength, f32 time)
 			strength *= 65535.f;
 			time *= 1000.f;
 		}
-		SDL_GameControllerRumble(pads[idx], (u16)strength, (u16)strength, (u32)time);
+		SDL_RumbleGamepad(pads[idx], (u16)strength, (u16)strength, (u32)time);
 	}
 }
 
@@ -941,15 +950,15 @@ void inputControllerSetSticksSwapped(s32 cidx, s32 swapped)
 {
 	padsCfg[cidx].swapSticks = swapped;
 	if (swapped) {
-		padsCfg[cidx].axisMap[0][0] = SDL_CONTROLLER_AXIS_RIGHTX;
-		padsCfg[cidx].axisMap[0][1] = SDL_CONTROLLER_AXIS_RIGHTY;
-		padsCfg[cidx].axisMap[1][0] = SDL_CONTROLLER_AXIS_LEFTX;
-		padsCfg[cidx].axisMap[1][1] = SDL_CONTROLLER_AXIS_LEFTY;
+		padsCfg[cidx].axisMap[0][0] = SDL_GAMEPAD_AXIS_RIGHTX;
+		padsCfg[cidx].axisMap[0][1] = SDL_GAMEPAD_AXIS_RIGHTY;
+		padsCfg[cidx].axisMap[1][0] = SDL_GAMEPAD_AXIS_LEFTX;
+		padsCfg[cidx].axisMap[1][1] = SDL_GAMEPAD_AXIS_LEFTY;
 	} else {
-		padsCfg[cidx].axisMap[0][0] = SDL_CONTROLLER_AXIS_LEFTX;
-		padsCfg[cidx].axisMap[0][1] = SDL_CONTROLLER_AXIS_LEFTY;
-		padsCfg[cidx].axisMap[1][0] = SDL_CONTROLLER_AXIS_RIGHTX;
-		padsCfg[cidx].axisMap[1][1] = SDL_CONTROLLER_AXIS_RIGHTY;
+		padsCfg[cidx].axisMap[0][0] = SDL_GAMEPAD_AXIS_LEFTX;
+		padsCfg[cidx].axisMap[0][1] = SDL_GAMEPAD_AXIS_LEFTY;
+		padsCfg[cidx].axisMap[1][0] = SDL_GAMEPAD_AXIS_RIGHTX;
+		padsCfg[cidx].axisMap[1][1] = SDL_GAMEPAD_AXIS_RIGHTY;
 	}
 }
 
@@ -993,14 +1002,16 @@ void inputControllerSetAxisDeadzone(s32 cidx, s32 stick, s32 axis, f32 value)
 	padsCfg[cidx].deadzone[stick * 2 + axis] = value * 32767.f;
 }
 
-s32 inputGetConnectedControllers(s32 *out)
+s32 inputGetConnectedControllers(u32 *out)
 {
 	s32 count = 0;
 
+	const SDL_JoystickID *joysticks = SDL_GetJoysticks(NULL);
+
 	for (s32 jidx = 0; jidx < numJoysticks; ++jidx) {
-		if (SDL_IsGameController(jidx)) {
+		if (joysticks[jidx] && SDL_IsGamepad(joysticks[jidx])) {
 			if (out && count < INPUT_MAX_CONNECTED_CONTROLLERS) {
-				out[count] = SDL_JoystickGetDeviceInstanceID(jidx);
+				out[count] = joysticks[jidx];
 			}
 			++count;
 		}
@@ -1022,7 +1033,7 @@ s32 inputGetAssignedControllerId(s32 cidx)
 	return inputControllerGetId(pads[cidx]);
 }
 
-const char *inputGetConnectedControllerName(s32 id)
+const char *inputGetConnectedControllerName(u32 id)
 {
 	static char fullName[256];
 
@@ -1035,7 +1046,7 @@ const char *inputGetConnectedControllerName(s32 id)
 		return "Invalid";
 	}
 
-	const char *name = SDL_GameControllerNameForIndex(jidx);
+	const char *name = SDL_GetJoystickNameForID(id);
 	if (!name || !name[0]) {
 		name = "Unnamed Controller";
 	}
@@ -1068,7 +1079,9 @@ s32 inputAssignController(s32 cidx, s32 id)
 	}
 
 	const s32 jidx = inputDeviceIndexFromId(id);
-	if (jidx < 0 || jidx >= SDL_NumJoysticks() || !SDL_IsGameController(jidx)) {
+	const SDL_JoystickID *joysticks = SDL_GetJoysticks(NULL);
+
+	if (jidx < 0 || jidx >= numJoysticks || !SDL_IsGamepad(id)) {
 		return 0;
 	}
 
@@ -1081,7 +1094,7 @@ s32 inputAssignController(s32 cidx, s32 id)
 		}
 	}
 
-	SDL_GameController *newpad = SDL_GameControllerOpen(jidx);
+	SDL_Gamepad *newpad = SDL_OpenGamepad(id);
 	if (!newpad) {
 		return 0;
 	}
@@ -1091,7 +1104,7 @@ s32 inputAssignController(s32 cidx, s32 id)
 	}
 
 	pads[cidx] = newpad;
-	inputInitController(cidx, id);
+	inputInitController(cidx, jidx);
 
 	return 1;
 }
@@ -1128,12 +1141,12 @@ const u32 *inputKeyGetBinds(s32 idx, u32 ck)
 s32 inputKeyPressed(u32 vk)
 {
 	if (vk >= VK_KEYBOARD_BEGIN && vk < VK_MOUSE_BEGIN) {
-		const u8 *state = SDL_GetKeyboardState(NULL);
+		const bool *state = SDL_GetKeyboardState(NULL);
 		return state[vk - VK_KEYBOARD_BEGIN];
 	}
 
 	if (vk >= VK_MOUSE_BEGIN && vk < VK_JOY_BEGIN) {
-		return (mouseButtons & SDL_BUTTON(vk - VK_MOUSE_BEGIN + 1)) != 0;
+		return (mouseButtons & SDL_BUTTON_MASK(vk - VK_MOUSE_BEGIN + 1)) != 0;
 	}
 
 	if (vk >= VK_JOY_BEGIN && vk < VK_TOTAL_COUNT) {
@@ -1145,10 +1158,10 @@ s32 inputKeyPressed(u32 vk)
 		vk = vk % INPUT_MAX_CONTROLLER_BUTTONS;
 		// triggers
 		if (vk == 30 || vk == 31) {
-			const s32 trig = SDL_CONTROLLER_AXIS_TRIGGERLEFT + vk - 30;
-			return SDL_GameControllerGetAxis(pads[idx], trig) > TRIG_THRESHOLD;
+			const s32 trig = SDL_GAMEPAD_AXIS_LEFT_TRIGGER + vk - 30;
+			return SDL_GetGamepadAxis(pads[idx], trig) > TRIG_THRESHOLD;
 		}
-		return SDL_GameControllerGetButton(pads[idx], vk);
+		return SDL_GetGamepadButton(pads[idx], vk);
 	}
 
 	return 0;
@@ -1183,7 +1196,8 @@ s32 inputButtonPressed(s32 idx, u32 contbtn)
 void inputLockMouse(s32 lock)
 {
 	mouseLocked = !!lock;
-	SDL_SetRelativeMouseMode(mouseLocked);
+	SDL_Window *wnd = gfx_sdl.get_window_handle();
+	SDL_SetWindowRelativeMouseMode(wnd, lock);
 }
 
 s32 inputMouseIsLocked(void)
@@ -1269,9 +1283,12 @@ s32 inputAutoLockMouse(s32 wantlock)
 void inputMouseShowCursor(s32 show)
 {
 	mouseShowCursor = !!show;
-	SDL_ShowCursor(mouseShowCursor);
 	if (show) {
 		mouseCursorTime = sysGetMicroseconds() + CURSOR_HIDE_TIME;
+		SDL_ShowCursor();
+	}
+	else {
+		SDL_HideCursor();
 	}
 }
 
@@ -1369,7 +1386,7 @@ void inputStartTextInput(void)
 	lastChar = 0;
 	lastKey = 0;
 	textInput = 1;
-	SDL_StartTextInput();
+	SDL_StartTextInput(gfx_sdl.get_window_handle());
 }
 
 void inputClearLastTextChar(void)
@@ -1460,7 +1477,8 @@ const char *inputGetClipboard(void)
 
 void inputStopTextInput(void)
 {
-	SDL_StopTextInput();
+	SDL_Window *wnd = gfx_sdl.get_window_handle();
+	SDL_StopTextInput(wnd);
 	textInput = 0;
 }
 

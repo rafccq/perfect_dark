@@ -576,7 +576,7 @@ static MenuItemHandlerResult menuhandlerSwapSticks(s32 operation, struct menuite
 static MenuItemHandlerResult menuhandlerController(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static char ctrlname[35];
-	s32 ctrls[INPUT_MAX_CONNECTED_CONTROLLERS];
+	u32 ctrls[INPUT_MAX_CONNECTED_CONTROLLERS];
 	const s32 numCtrls = inputGetConnectedControllers(ctrls);
 	const s32 curCtrl = inputGetAssignedControllerId(g_ExtMenuPlayer);
 
@@ -586,7 +586,7 @@ static MenuItemHandlerResult menuhandlerController(s32 operation, struct menuite
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->dropdown.value) {
-			const s32 jid = ctrls[data->dropdown.value - 1];
+			const u32 jid = ctrls[data->dropdown.value - 1];
 			const char *name = inputGetConnectedControllerName(jid);
 			strncpy(ctrlname, name, sizeof(ctrlname) - 1);
 			return (intptr_t)ctrlname;

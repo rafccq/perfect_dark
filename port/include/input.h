@@ -157,11 +157,11 @@ void inputControllerSetAxisDeadzone(s32 cidx, s32 stick, s32 axis, f32 value);
 // writes array of up to INPUT_MAX_CONNECTED_CONTROLLERS controller IDs
 // for all the controllers available on this machine into out if it's not NULL
 // returns number of IDs that would've been written (or were written if out is not NULL)
-s32 inputGetConnectedControllers(s32 *out);
+s32 inputGetConnectedControllers(u32 *out);
 
 // get name of connected controller id
 // returns "Invalid" on failure
-const char *inputGetConnectedControllerName(s32 id);
+const char *inputGetConnectedControllerName(u32 id);
 
 // get id of the controller currently assigned to player cidx or -1 if none
 s32 inputGetAssignedControllerId(s32 cidx);
