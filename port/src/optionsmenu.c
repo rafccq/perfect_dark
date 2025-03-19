@@ -10,6 +10,7 @@
 #include "game/menu.h"
 #include "game/gamefile.h"
 #include "game/player.h"
+#include "lib/joy.h"
 #include "video.h"
 #include "input.h"
 #include "config.h"
@@ -608,6 +609,7 @@ static MenuItemHandlerResult menuhandlerController(s32 operation, struct menuite
 		} else if (data->dropdown.value <= numCtrls) {
 			inputAssignController(g_ExtMenuPlayer, ctrls[data->dropdown.value - 1]);
 		}
+		joy00013e84();
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		for (s32 i = 0; i < numCtrls; ++i) {
