@@ -1890,7 +1890,7 @@ Gfx *creditsDraw(Gfx *gdl)
 #if VERSION >= VERSION_NTSC_1_0
 	// Exit to CI if a button is pressed (other than L or R), for the port
 	if (joyGetButtonsPressedThisFrame(0, 0xffcf) ||
-		inputKeyJustPressed(VK_ESCAPE))
+		inputKeyJustPressed(VK_ESCAPE, g_Vars.currentplayernum))
 #else
 	if (joyGetButtons(0, 0xffff) ||
 		inputKeyJustPressed(VK_ESCAPE))

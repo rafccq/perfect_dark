@@ -713,7 +713,9 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	f32 newverta;
 #ifndef PLATFORM_N64
 	const f32 mlookscale = g_Vars.lvupdate240 ? (4.f / (f32)g_Vars.lvupdate240) : 4.f;
-	const bool allowmlook = (g_Vars.currentplayernum == 0) && (allowc1x || allowc1y);
+	const bool allowmlook = (allowc1x || allowc1y)
+			&& inputGetPlayerKeyboardID(g_Vars.currentplayernum)
+			&& inputGetPlayerMouseID(g_Vars.currentplayernum);
 	bool allowmcross = false;
 #endif
 
@@ -773,7 +775,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 #ifndef PLATFORM_N64
 	if (allowmlook) {
-		inputMouseGetScaledDelta(&movedata.freelookdx, &movedata.freelookdy);
+		inputMouseGetScaledDelta(g_Vars.currentplayernum, &movedata.freelookdx, &movedata.freelookdy);
 		allowmcross = (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_CLASSIC) &&
 			(movedata.freelookdx || movedata.freelookdy || g_Vars.currentplayer->swivelpos[0] || g_Vars.currentplayer->swivelpos[1]);
 		if (movedata.invertpitch) {
@@ -782,7 +784,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	}
 	// always pause with ESC
 	if (allowc1buttons && g_Vars.currentplayer->isdead == false && g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
-		if (inputKeyJustPressed(VK_ESCAPE)) {
+		if (inputKeyJustPressed(VK_ESCAPE, g_Vars.currentplayernum)) {
 			c1buttonsthisframe |= START_BUTTON;
 		}
 	}

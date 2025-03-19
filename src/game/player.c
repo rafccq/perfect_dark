@@ -2068,7 +2068,7 @@ void playerTickCutscene(bool arg0)
 	}
 
 #ifndef PLATFORM_N64
-	if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
+	if (arg0 && inputKeyJustPressed(VK_ESCAPE, g_Vars.currentplayernum)) {
 		buttons |= START_BUTTON;
 	}
 #endif
@@ -3351,7 +3351,7 @@ void playerTick(bool arg0)
 					u32 buttons = arg0 ? joyGetButtons(contpad1, 0xffffffff) : 0;
 
 #ifndef PLATFORM_N64
-					if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
+					if (arg0 && inputKeyJustPressed(VK_ESCAPE, g_Vars.currentplayernum)) {
 						buttons |= START_BUTTON;
 					}
 #endif
@@ -3637,7 +3637,7 @@ void playerTick(bool arg0)
 				}
 
 #ifndef PLATFORM_N64
-				if (g_PlayersWithControl[g_Vars.currentplayernum] && inputKeyJustPressed(VK_ESCAPE)) {
+				if (g_PlayersWithControl[g_Vars.currentplayernum] && inputKeyJustPressed(VK_ESCAPE, g_Vars.currentplayernum)) {
 					pause = true;
 				}
 #endif
@@ -3663,9 +3663,10 @@ void playerTick(bool arg0)
 					sp178 = -sp178;
 				}
 				// mouse control
-				if (g_Vars.currentplayernum == 0) {
+				bool multipleMnK = inputGetManyMnKEnabled() && inputGetPlayerMouseID(g_Vars.currentplayernum);
+				if (g_Vars.currentplayernum == 0 || multipleMnK) {
 					f32 mdx, mdy;
-					inputMouseGetScaledDelta(&mdx, &mdy);
+					inputMouseGetScaledDelta(g_Vars.currentplayernum, &mdx, &mdy);
 					if (mdx || mdy) {
 						mdx *= 48.f;
 						mdy *= 48.f;

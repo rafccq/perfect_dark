@@ -185,6 +185,7 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 
 	FILE *fout = (level == LOG_NOTE) ? stdout : stderr;
 	fprintf(fout, "%s%s\n", prefix[level], logmsg);
+	fflush(fout);
 }
 
 void sysFatalError(const char *fmt, ...)

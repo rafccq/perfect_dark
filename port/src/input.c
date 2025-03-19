@@ -4,7 +4,6 @@
 #include <ctype.h>
 #include <SDL3/SDL.h>
 #include <PR/ultratypes.h>
-#include <PR/os_thread.h>
 #include <PR/os_cont.h>
 #include "platform.h"
 #include "input.h"
@@ -71,6 +70,10 @@ static struct controllercfg {
 static u32 binds[MAXCONTROLLERS][CK_TOTAL_COUNT][INPUT_MAX_BINDS];
 static char bindStrs[MAXCONTROLLERS][CK_TOTAL_COUNT][MAX_BIND_STR];
 
+static s32 g_ManyMnKEnabled;
+static u32 assignedKeyboards[MAXCONTROLLERS];
+static u32 assignedMice[MAXCONTROLLERS];
+
 static s32 fakeControllers = 0;
 static s32 firstController = 0;
 static s32 connectedMask = 0;
@@ -78,10 +81,13 @@ static s32 connectedMask = 0;
 static s32 numJoysticks = 0;
 
 static s32 mouseEnabled = 1;
-static s32 mouseX, mouseY;
-static s32 mouseDX, mouseDY;
-static u32 mouseButtons;
-static s32 mouseWheel = 0;
+static s32 mouseX[MAXCONTROLLERS], mouseY[MAXCONTROLLERS];
+static s32 mouseDX[MAXCONTROLLERS], mouseDY[MAXCONTROLLERS];
+static u32 mouseButtons[MAXCONTROLLERS];
+static s32 mouseWheel[MAXCONTROLLERS];
+
+static s32 mouseX_cached[MAXCONTROLLERS], mouseY_cached[MAXCONTROLLERS];
+static s32 mouseDX_cached[MAXCONTROLLERS], mouseDY_cached[MAXCONTROLLERS];
 
 static s32 mouseLocked = 0;
 static s32 mouseLockMode = MLOCK_AUTO;
@@ -96,6 +102,11 @@ static char lastChar = 0;
 static s32 textInput = 0;
 
 static char *clipboardText = NULL;
+
+static u32 lastKeyboardID = 0;
+static u32 lastKeyboardIndex = 0;
+static u32 lastMouseID = 0;
+static u32 lastMouseIndex = 0;
 
 static const char *ckNames[CK_TOTAL_COUNT] = {
 	"R_CBUTTONS",
@@ -184,7 +195,8 @@ static const char *vkJoyNames[] = {
 
 static char vkNames[VK_TOTAL_COUNT][64];
 
-static s8 vkPrevState[VK_TOTAL_COUNT];
+static s8 vkState[MAXCONTROLLERS][VK_TOTAL_COUNT];
+static s8 vkPrevState[MAXCONTROLLERS][VK_TOTAL_COUNT];
 
 void inputSetDefaultKeyBinds(s32 cidx, s32 n64mode)
 {
@@ -472,8 +484,51 @@ static inline void inputInitAllControllers(void)
 	}
 }
 
+static inline s32 getPlayerIndexFromMouse(u32 mouseID)
+{
+	if (!g_ManyMnKEnabled) {
+		return 0;
+	}
+
+	for (int idx = 0; idx < MAXCONTROLLERS; ++idx) {
+		if (assignedMice[idx] == mouseID)
+			return idx;
+	}
+
+	return -1;
+}
+
+static inline s32 getPlayerIndexFromKeyboard(u32 keyboardID)
+{
+	if (!g_ManyMnKEnabled) {
+		return 0;
+	}
+
+	for (int idx = 0; idx < MAXCONTROLLERS; ++idx) {
+		if (assignedKeyboards[idx] == keyboardID)
+			return idx;
+	}
+
+	return -1;
+}
+
+static void ensureP1HasInput() {
+	int kbidx = inputGetKeyboardIndex(assignedKeyboards[0]);
+	if (kbidx < 0) {
+		SDL_KeyboardID *ids = SDL_GetKeyboards(NULL);
+		assignedKeyboards[0] = ids[0];
+	}
+
+	int mouseidx = inputGetMouseIndex(assignedMice[0]);
+	if (mouseidx < 0) {
+		SDL_MouseID *ids = SDL_GetMice(NULL);
+		assignedMice[0] = ids[0];
+	}
+}
+
 static bool inputEventFilter(void *data, SDL_Event *event)
 {
+	s32 playerIdx;
 	switch (event->type) {
 		case SDL_EVENT_GAMEPAD_ADDED :
 			for (s32 i = firstController; i < INPUT_MAX_CONTROLLERS; ++i) {
@@ -504,23 +559,49 @@ static bool inputEventFilter(void *data, SDL_Event *event)
 			break;
 
 		case SDL_EVENT_MOUSE_WHEEL :
-			mouseWheel = event->wheel.y;
-			if (!lastKey && mouseWheel) {
-				lastKey = (mouseWheel < 0) + VK_MOUSE_WHEEL_UP;
+			playerIdx = getPlayerIndexFromMouse(event->wheel.which);
+			if (playerIdx >= 0) {
+				mouseWheel[playerIdx] = event->wheel.y;
+				if (!lastKey && mouseWheel[playerIdx]) {
+					lastKey = (mouseWheel[playerIdx] < 0) + VK_MOUSE_WHEEL_UP;
+				}
 			}
 			break;
-
 		case SDL_EVENT_MOUSE_BUTTON_DOWN :
 			if (!lastKey) {
 				lastKey = VK_MOUSE_BEGIN - 1 + event->button.button;
 			}
+			lastMouseID = event->button.which;
+			playerIdx = getPlayerIndexFromMouse(event->button.which);
+			mouseButtons[playerIdx] |= SDL_BUTTON_MASK(event->button.button);
+			break;
+		case SDL_EVENT_MOUSE_BUTTON_UP:
+			playerIdx = getPlayerIndexFromMouse(event->button.which);
+			mouseButtons[playerIdx] &= ~SDL_BUTTON_MASK(event->button.button);
+			break;
+		case SDL_EVENT_MOUSE_MOTION:
+			lastMouseID = event->motion.which;
+			playerIdx = getPlayerIndexFromMouse(event->motion.which);
+			mouseX_cached[playerIdx] = event->motion.x;
+			mouseY_cached[playerIdx] = event->motion.y;
+			mouseDX_cached[playerIdx] += event->motion.xrel;
+			mouseDY_cached[playerIdx] += event->motion.yrel;
 			break;
 		case SDL_EVENT_KEY_DOWN :
 			if (!lastKey) {
 				lastKey = VK_KEYBOARD_BEGIN + event->key.scancode;
 			}
+			if (lastKeyboardID != event->key.which) {
+				lastKeyboardID = event->key.which;
+				lastKeyboardIndex = inputGetKeyboardIndex(lastKeyboardID);
+			}
+			playerIdx = getPlayerIndexFromKeyboard(event->key.which);
+			vkState[playerIdx][VK_KEYBOARD_BEGIN + event->key.scancode] = 1;
 			break;
-
+		case SDL_EVENT_KEY_UP :
+			playerIdx = getPlayerIndexFromKeyboard(event->key.which);
+			vkState[playerIdx][VK_KEYBOARD_BEGIN + event->key.scancode] = 0;
+			break;
 		case SDL_EVENT_GAMEPAD_BUTTON_DOWN :
 			if (!lastKey) {
 				lastKey = VK_JOY1_BEGIN + event->gbutton.button;
@@ -687,6 +768,11 @@ s32 inputInit(void)
 		SDL_InitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_HAPTIC);
 	}
 
+	char *enableRawKB = g_ManyMnKEnabled ? "1" : "0";
+	SDL_SetHint(SDL_HINT_WINDOWS_RAW_KEYBOARD, enableRawKB);
+
+	ensureP1HasInput();
+
 	// try to load controller db from an external file in the save folder
 	if (fsFileSize("$S/" CONTROLLERDB_FNAME)) {
 		const char *dbpath = fsFullPath("$S/" CONTROLLERDB_FNAME);
@@ -719,14 +805,29 @@ s32 inputInit(void)
 
 	inputLoadBinds();
 
+	for (int i = 0; i < MAXCONTROLLERS; ++i) {
+		mouseWheel[i] = 0;
+		mouseButtons[i] = 0;
+		mouseDX[i] = 0;
+		mouseDY[i] = 0;
+		mouseX[i] = 0;
+		mouseY[i] = 0;
+	}
+
 	return connectedMask;
 }
 
 static inline s32 inputBindPressed(const s32 idx, const u32 ck)
 {
 	for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
-		if (binds[idx][ck][i]) {
-			if (inputKeyPressed(binds[idx][ck][i])) {
+		u32 kbid = assignedKeyboards[idx];
+		if (g_ManyMnKEnabled && kbid) {
+			if (inputKeyPressed(binds[idx][ck][i], idx)) {
+				return 1;
+			}
+		}
+		else if (binds[idx][ck][i]) {
+			if (inputKeyPressed(binds[idx][ck][i], idx)) {
 				return 1;
 			}
 		}
@@ -836,37 +937,38 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 	return 0;
 }
 
-static inline void inputUpdateMouse(void)
+static inline void inputUpdateMouse(s32 idx)
 {
 	f32 mx, my;
-	mouseButtons = SDL_GetMouseState(&mx, &my);
+	mx = mouseX_cached[idx];
+	my = mouseY_cached[idx];
 
-	if (mouseWheel > 0) {
-		mouseButtons |= WHEEL_UP_MASK;
+	if (mouseWheel[idx] > 0) {
+		mouseButtons[idx] |= WHEEL_UP_MASK;
 	} else if (mouseWheel < 0) {
-		mouseButtons |= WHEEL_DN_MASK;
+		mouseButtons[idx] |= WHEEL_DN_MASK;
 	}
 
-	mouseWheel = 0;
+	mouseWheel[idx] = 0;
 
-	f32 mdx = 0;
-	f32 mdy = 0;
-	SDL_GetRelativeMouseState(&mdx, &mdy);
 	if (mouseLocked) {
-		mouseDX = mdx;
-		mouseDY = mdy;
+		mouseDX[idx] = mouseDX_cached[idx];
+		mouseDY[idx] = mouseDY_cached[idx];
 	} else {
-		mouseDX = mx - mouseX;
-		mouseDY = my - mouseY;
+		mouseDX[idx] = mx - mouseX[idx];
+		mouseDY[idx] = my - mouseY[idx];
 	}
 
-	mouseX = mx;
-	mouseY = my;
+	mouseX[idx] = mx;
+	mouseY[idx] = my;
+
+	mouseDX_cached[idx] = 0;
+	mouseDY_cached[idx] = 0;
 
 	// if MLOCK_AUTO is enabled, disable cursor if mouse is unlocked
 	// and we haven't moved it for a few seconds
 	if (mouseLockMode == MLOCK_AUTO && !mouseLocked) {
-		if (abs(mouseDX) > CURSOR_HIDE_THRESHOLD || abs(mouseDY) > CURSOR_HIDE_THRESHOLD) {
+		if (abs(mouseDX[idx]) > CURSOR_HIDE_THRESHOLD || abs(mouseDY[idx]) > CURSOR_HIDE_THRESHOLD) {
 			if (!mouseShowCursor) {
 				inputMouseShowCursor(1);
 			}
@@ -883,7 +985,9 @@ void inputUpdate(void)
 	SDL_UpdateGamepads();
 
 	if (mouseEnabled) {
-		inputUpdateMouse();
+		for (int idx = 0; idx < MAXCONTROLLERS; ++idx) {
+			inputUpdateMouse(idx);
+		}
 	}
 }
 
@@ -1138,15 +1242,15 @@ const u32 *inputKeyGetBinds(s32 idx, u32 ck)
 	return binds[idx][ck];
 }
 
-s32 inputKeyPressed(u32 vk)
+s32 inputKeyPressed(u32 vk, s32 playerNum)
 {
 	if (vk >= VK_KEYBOARD_BEGIN && vk < VK_MOUSE_BEGIN) {
-		const bool *state = SDL_GetKeyboardState(NULL);
+		const s8 *state = vkState[playerNum];
 		return state[vk - VK_KEYBOARD_BEGIN];
 	}
 
 	if (vk >= VK_MOUSE_BEGIN && vk < VK_JOY_BEGIN) {
-		return (mouseButtons & SDL_BUTTON_MASK(vk - VK_MOUSE_BEGIN + 1)) != 0;
+		return (mouseButtons[playerNum] & SDL_BUTTON_MASK(vk - VK_MOUSE_BEGIN + 1)) != 0;
 	}
 
 	if (vk >= VK_JOY_BEGIN && vk < VK_TOTAL_COUNT) {
@@ -1167,11 +1271,11 @@ s32 inputKeyPressed(u32 vk)
 	return 0;
 }
 
-s32 inputKeyJustPressed(u32 vk)
+s32 inputKeyJustPressed(u32 vk, u32 playerNum)
 {
-	const s8 pressed = inputKeyPressed(vk);
-	const s32 result = pressed && !vkPrevState[vk];
-	vkPrevState[vk] = pressed;
+	const s8 pressed = inputKeyPressed(vk, playerNum);
+	const s32 result = pressed && !vkPrevState[playerNum][vk];
+	vkPrevState[playerNum][vk] = pressed;
 	return result;
 }
 
@@ -1205,25 +1309,25 @@ s32 inputMouseIsLocked(void)
 	return mouseLocked;
 }
 
-s32 inputMouseGetPosition(s32 *x, s32 *y)
+s32 inputMouseGetPosition(u32 playerNum, s32 *x, s32 *y)
 {
-	if (x) *x = mouseX * videoGetNativeWidth() / videoGetWidth();
-	if (y) *y = mouseY * videoGetNativeHeight() / videoGetHeight();
-	return (mouseDX != 0 || mouseDY != 0);
+	if (x) *x = mouseX[playerNum] * videoGetNativeWidth() / videoGetWidth();
+	if (y) *y = mouseY[playerNum] * videoGetNativeHeight() / videoGetHeight();
+	return (mouseDX[playerNum] != 0 || mouseDY[playerNum] != 0);
 }
 
-void inputMouseGetRawDelta(s32 *dx, s32 *dy)
+void inputMouseGetRawDelta(u32 playerNum, s32 *dx, s32 *dy)
 {
-	if (dx) *dx = mouseDX;
-	if (dy) *dy = mouseDY;
+	if (dx) *dx = mouseDX[playerNum];
+	if (dy) *dy = mouseDY[playerNum];
 }
 
-void inputMouseGetScaledDelta(f32 *dx, f32 *dy)
+void inputMouseGetScaledDelta(u32 playerNum, f32 *dx, f32 *dy)
 {
 	f32 mdx, mdy;
 	if (mouseLocked) {
-		mdx = mouseSensX * (f32)mouseDX / 100.0f;
-		mdy = mouseSensY * (f32)mouseDY / 100.0f;
+		mdx = mouseSensX * (f32)mouseDX[playerNum] / 100.0f;
+		mdy = mouseSensY * (f32)mouseDY[playerNum] / 100.0f;
 	} else {
 		mdx = 0.f;
 		mdy = 0.f;
@@ -1232,12 +1336,12 @@ void inputMouseGetScaledDelta(f32 *dx, f32 *dy)
 	if (dy) *dy = mdy;
 }
 
-void inputMouseGetAbsScaledDelta(f32 *dx, f32 *dy)
+void inputMouseGetAbsScaledDelta(u32 playerNum, f32 *dx, f32 *dy)
 {
 	f32 mdx, mdy;
 	if (mouseLocked) {
-		mdx = fabsf(mouseSensX) * (f32)mouseDX / 100.0f;
-		mdy = fabsf(mouseSensY) * (f32)mouseDY / 100.0f;
+		mdx = fabsf(mouseSensX) * (f32)mouseDX[playerNum] / 100.0f;
+		mdy = fabsf(mouseSensY) * (f32)mouseDY[playerNum] / 100.0f;
 	} else {
 		mdx = 0.f;
 		mdy = 0.f;
@@ -1381,6 +1485,55 @@ s32 inputGetLastKey(void)
 	return lastKey;
 }
 
+void inputClearLastKeyboardID(void)
+{
+	lastKeyboardID = 0;
+}
+
+u32 inputGetLastKeyboardID(void)
+{
+	return lastKeyboardID;
+}
+
+const char *inputGetKeyboardName(u32 kbid) {
+	return kbid > 0 ? SDL_GetKeyboardNameForID(kbid) : "";
+}
+
+const int inputGetKeyboardIndex(u32 kbid) {
+	int count = 0;
+	SDL_KeyboardID *ids = SDL_GetKeyboards(&count);
+
+	for (int idx = 0; idx < count; ++idx) {
+		if (ids[idx] == kbid)
+			return idx;
+	}
+
+	return -1;
+}
+
+u32 inputGetLastMouseID(void)
+{
+	return lastMouseID;
+}
+
+const char *inputGetMouseName(u32 mid)
+{
+	return mid > 0 ? SDL_GetMouseNameForID(mid) : "";
+}
+
+const int inputGetMouseIndex(u32 mid)
+{
+	int count = 0;
+	SDL_MouseID *ids = SDL_GetMice(&count);
+
+	for (int idx = 0; idx < count; ++idx) {
+		if (ids[idx] == mid)
+			return idx;
+	}
+
+	return -1;
+}
+
 void inputStartTextInput(void)
 {
 	lastChar = 0;
@@ -1492,6 +1645,43 @@ u32 inputGetKeyModState(void)
 	return SDL_GetModState();
 }
 
+const s32 inputGetManyMnKEnabled() {
+	return g_ManyMnKEnabled;
+}
+
+void inputSetManyMnKEnabled(const s32 enabled) {
+	g_ManyMnKEnabled = enabled;
+
+	if (enabled) {
+		ensureP1HasInput();
+	}
+}
+
+const s32 inputGetPlayerKeyboardID(u32 playerNum)
+{
+	return assignedKeyboards[playerNum];
+}
+
+const s32 inputGetPlayerMouseID(u32 playerNum)
+{
+	return assignedMice[playerNum];
+}
+
+void inputSetPlayerKeyboardID(u32 playerNum, u32 id)
+{
+	for (int i = 0; i < VK_TOTAL_COUNT; ++i) {
+		vkState[playerNum][i] = 0;
+	}
+
+	assignedKeyboards[playerNum] = id;
+	connectedMask |= (1 << playerNum);
+}
+
+void inputSetPlayerMouseID(u32 playerNum, u32 id)
+{
+	assignedMice[playerNum] = id;
+}
+
 PD_CONSTRUCTOR static void inputConfigInit(void)
 {
 	configRegisterInt("Input.MouseEnabled", &mouseEnabled, 0, 1);
@@ -1500,6 +1690,7 @@ PD_CONSTRUCTOR static void inputConfigInit(void)
 	configRegisterFloat("Input.MouseSpeedY", &mouseSensY, -10.f, 10.f);
 	configRegisterInt("Input.FakeGamepads", &fakeControllers, 0, 4);
 	configRegisterInt("Input.FirstGamepadNum", &firstController, 0, 3);
+	configRegisterInt("Input.MultipleMnKEnabled", &g_ManyMnKEnabled, 0, 1);
 
 	char secname[] = "Input.Player1.Binds";
 	char keyname[256] = { 0 };
@@ -1519,6 +1710,8 @@ PD_CONSTRUCTOR static void inputConfigInit(void)
 		configRegisterInt(strFmt("%s.CancelCButtons", secname), &padsCfg[c].cancelCButtons, 0, 1);
 		configRegisterInt(strFmt("%s.SwapSticks", secname), &padsCfg[c].swapSticks, 0, 1);
 		configRegisterInt(strFmt("%s.ControllerIndex", secname), &padsCfg[c].deviceIndex, -1, 0x7FFFFFFF);
+		configRegisterInt(strFmt("%s.MouseID", secname), &assignedMice[c], 0, 0xFFFFFFFF);
+		configRegisterInt(strFmt("%s.KeyboardID", secname), &assignedKeyboards[c], 0, 0xFFFFFFFF);
 		secname[13] = '.';
 		for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
 			snprintf(keyname, sizeof(keyname), "%s.%s", secname, inputGetContKeyName(ck));

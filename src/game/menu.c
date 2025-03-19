@@ -48,6 +48,8 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+
+#include "system.h"
 #ifndef PLATFORM_N64
 #include "video.h"
 #include "input.h"
@@ -4705,12 +4707,15 @@ void menuProcessInput(void)
 	inputs.mousex = 0;
 	inputs.mousey = 0;
 	// only allow mouse controls for player 1 menus
-	if (menu->playernum == 0) {
+	if (menu->playernum == 0 || inputGetManyMnKEnabled()) {
 		// ESC always acts as back
-		inputs.back = inputKeyJustPressed(VK_ESCAPE);
+		u32 kbid = inputGetLastKeyboardID();
+
+		inputs.back = inputKeyJustPressed(VK_ESCAPE, g_MpPlayerNum) && kbid == inputGetPlayerKeyboardID(g_MpPlayerNum);
+
 		if (inputMouseIsEnabled() && !inputMouseIsLocked() && g_MenuMouseControl) {
-			inputs.mousemoved = inputMouseGetPosition(&inputs.mousex, &inputs.mousey);
-			inputs.mousescroll = inputKeyPressed(VK_MOUSE_WHEEL_DN) - inputKeyPressed(VK_MOUSE_WHEEL_UP);
+			inputs.mousemoved = inputMouseGetPosition(g_MpPlayerNum, &inputs.mousex, &inputs.mousey);
+			inputs.mousescroll = inputKeyPressed(VK_MOUSE_WHEEL_DN, g_MpPlayerNum) - inputKeyPressed(VK_MOUSE_WHEEL_UP, g_MpPlayerNum);
 			// aspect correct the X
 			const f32 cx = ((f32)inputs.mousex - (f32)(SCREEN_WIDTH_LO / 2)) * (videoGetAspect() / SCREEN_ASPECT);
 			inputs.mousex = (f32)(SCREEN_WIDTH_LO / 2) + cx;

@@ -27,6 +27,7 @@ enum virtkey {
 	VK_RETURN = 40,
 	VK_ESCAPE = 41,
 	VK_BACKSPACE = 42,
+	VK_TAB = 43,
 	VK_SPACE = 44,
 	VK_MINUS = 45,
 	VK_LEFTBRACKET = 47,
@@ -172,8 +173,8 @@ s32 inputGetAssignedControllerId(s32 cidx);
 s32 inputAssignController(s32 cidx, s32 id);
 
 // vk is a value from the virtkey enum above
-s32 inputKeyPressed(u32 vk);
-s32 inputKeyJustPressed(u32 vk);
+s32 inputKeyPressed(u32 vk, s32 playerNum);
+s32 inputKeyJustPressed(u32 vk, u32 playerNum);
 
 // idx is controller index, contbtn is one of the CONT_ constants
 s32 inputButtonPressed(s32 idx, u32 contbtn);
@@ -210,18 +211,18 @@ s32 inputMouseIsLocked(void);
 
 // sets x, y to mouse position in native viewport coordinates (ie, 320x240 most of the time)
 // returns true if mouse has moved this input frame
-s32 inputMouseGetPosition(s32 *x, s32 *y);
+s32 inputMouseGetPosition(u32 playerNum, s32 *x, s32 *y);
 
 // returns changes in mouse position since last frame, in window coordinates
-void inputMouseGetRawDelta(s32 *dx, s32 *dy);
+void inputMouseGetRawDelta(u32 playerNum, s32 *dx, s32 *dy);
 
 // returns changes in mouse position since last frame, scaled by sensitivity
 // returns 0, 0 when the mouse is not locked into the window
-void inputMouseGetScaledDelta(f32 *dx, f32 *dy);
+void inputMouseGetScaledDelta(u32 playerNum, f32 *dx, f32 *dy);
 
 // returns changes in mouse position since last frame, scaled by absolute sensitivity
 // returns 0, 0 when the mouse is not locked into the window
-void inputMouseGetAbsScaledDelta(f32 *dx, f32 *dy);
+void inputMouseGetAbsScaledDelta(u32 playerNum, f32 *dx, f32 *dy);
 
 void inputMouseGetSpeed(f32 *x, f32 *y);
 void inputMouseSetSpeed(f32 x, f32 y);
@@ -266,5 +267,22 @@ const char *inputGetClipboard(void);
 
 // returns keymod values
 u32 inputGetKeyModState(void);
+
+const char *inputGetKeyboardName(u32 kbid);
+const s32 inputGetKeyboardIndex(u32 kbid);
+const char *inputGetMouseName(u32 kid);
+const s32 inputGetMouseIndex(u32 mid);
+
+u32 inputGetLastKeyboardID(void);
+u32 inputGetLastMouseID(void);
+
+const s32 inputGetManyMnKEnabled();
+void inputSetManyMnKEnabled(s32 enabled);
+
+const s32 inputGetPlayerKeyboardID(u32 playerNum);
+const s32 inputGetPlayerMouseID(u32 playerNum);
+
+void inputSetPlayerKeyboardID(u32 playerNum, u32 id);
+void inputSetPlayerMouseID(u32 playerNum, u32 id);
 
 #endif

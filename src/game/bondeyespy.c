@@ -940,9 +940,10 @@ void eyespyProcessInput(bool allowbuttons)
 #endif
 
 #ifndef PLATFORM_N64
-		if (g_Vars.currentplayernum == 0) {
+		bool multipleMnK = inputGetManyMnKEnabled() && inputGetPlayerMouseID(g_Vars.currentplayernum);
+		if (g_Vars.currentplayernum == 0 || multipleMnK) {
 			f32 mdx, mdy;
-			inputMouseGetScaledDelta(&mdx, &mdy);
+			inputMouseGetScaledDelta(g_Vars.currentplayernum, &mdx, &mdy);
 			if (mdx || mdy) {
 				if (g_Vars.currentplayerstats && !optionsGetForwardPitch(g_Vars.currentplayerstats->mpindex)) {
 					mdy = -mdy;

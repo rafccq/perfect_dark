@@ -14,11 +14,19 @@
 #include "input.h"
 #include "config.h"
 
+#include "system.h"
+
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
 
 static s32 g_BindIndex = 0;
 static u32 g_BindContKey = 0;
+
+static bool g_ExtMnKAssignAll = false;
+static char g_MnKAssignTitle[256];
+static char g_MnKAssignedMouse[128];
+static char g_MnKAssignedKeyboard[192];
+
 
 static MenuItemHandlerResult menuhandlerSelectPlayer(s32 operation, struct menuitem *item, union handlerdata *data);
 
@@ -1735,7 +1743,7 @@ static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *i
 		return 0;
 	}
 
-	if (inputKeyPressed(VK_ESCAPE)) {
+	if (inputKeyPressed(VK_ESCAPE, g_ExtMenuPlayer)) {
 		menuPopDialog();
 		return 0;
 	}
@@ -1819,6 +1827,306 @@ struct menudialogdef g_ExtendedBindsMenuDialog = {
 	NULL,
 };
 
+// #### Multiple Mice/Keyboards
+static MenuItemHandlerResult menuhandlerMnKEnabled(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+		case MENUOP_GET:
+			return inputGetManyMnKEnabled();
+		case MENUOP_SET:
+			inputSetManyMnKEnabled(data->checkbox.value);
+			break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerDoAssign(s32 operation, struct menuitem *item, union handlerdata *data);
+
+struct menuitem g_ExtendedMnkAssignMenuItems[] = {
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"\n",
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Press any key or mouse button...\n",
+		0,
+		menuhandlerDoAssign,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"ESC to skip, TAB to confirm\n",
+		0,
+		menuhandlerDoAssign,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"BACKSPACE to cancel, DELETE to clean\n",
+		0,
+		menuhandlerDoAssign,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+static char g_ExtendedMnKMenuTitle[] = "Player 1 (Mouse XX Keyboard XX)            ";
+struct menudialogdef g_ExtendedMnKAssignMenuDialog = {
+		MENUDIALOGTYPE_SUCCESS,
+		(uintptr_t)g_ExtendedMnKMenuTitle,
+		g_ExtendedMnkAssignMenuItems,
+		NULL,
+		MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_IGNOREBACK | MENUDIALOGFLAG_STARTSELECTS,
+		NULL,
+};
+
+static inline void strclamp(char* str, int len)
+{
+	str[len] = '\0';
+	str[len - 1] = str[len - 2] = str[len - 3] = '.';
+}
+
+static inline void updateMnKAssignMenuTitle() {
+	const s32 contid = inputGetAssignedControllerId(g_ExtMenuPlayer);
+	if (contid >= 0) {
+		sprintf(g_ExtendedMnKMenuTitle, "Player %d (Controller %d)", g_ExtMenuPlayer + 1, contid);
+	}
+	else {
+		char txtMouse[32] = "";
+		char txtKeyboard[32] = "";
+
+		u32 mouseid = inputGetPlayerMouseID(g_ExtMenuPlayer);
+		u32 kbid = inputGetPlayerKeyboardID(g_ExtMenuPlayer);
+
+		if (mouseid || kbid) {
+			sprintf(txtMouse, "Mouse %d", inputGetMouseIndex(mouseid));
+			sprintf(txtKeyboard, "Keyboard %d", inputGetKeyboardIndex(kbid));
+			char sep[4] = " | ";
+			if (kbid == 0) sep[0] = '\0';
+			sprintf(g_ExtendedMnKMenuTitle, "Player %d (%s%s%s)", g_ExtMenuPlayer + 1,
+				txtMouse, sep, txtKeyboard);
+		}
+		else
+			sprintf(g_ExtendedMnKMenuTitle, "Player %d", g_ExtMenuPlayer + 1);
+	}
+}
+
+static inline void nextAssign() {
+	if (!g_ExtMnKAssignAll || g_ExtMenuPlayer == 3)
+		menuPopDialog();
+	else {
+		g_ExtMenuPlayer += 1;
+		updateMnKAssignMenuTitle();
+	}
+	inputClearLastKey();
+}
+
+static inline void makeDeviceName(s32 idx, char *dst, const char *src, const s32 MAXLEN)
+{
+	if (idx >= 0) {
+		sprintf(dst, "[%d] %s", idx, src);
+		if (strlen(dst) > MAXLEN) strclamp(dst, MAXLEN);
+	}
+	else
+		strcpy(dst, "[None]");
+}
+
+u32 lastMouseID = 0;
+u32 lastKeyboardID = 0;
+static MenuItemHandlerResult menuhandlerDoAssign(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (!menuIsDialogOpen(&g_ExtendedMnKAssignMenuDialog)) {
+		return 0;
+	}
+
+	const s32 key = inputGetLastKey();
+	if (key == VK_ESCAPE) {
+		if (g_ExtMnKAssignAll)
+			nextAssign();
+		else
+			menuPopDialog();
+
+		inputClearLastKey();
+		return 0;
+	}
+	else if (key == VK_TAB) {
+		inputSetPlayerMouseID(g_ExtMenuPlayer, lastMouseID);
+		inputSetPlayerKeyboardID(g_ExtMenuPlayer, lastKeyboardID);
+
+		u32 kid = lastKeyboardID;
+		sysLogPrintf(LOG_NOTE, "SAVED %d %X %d", g_ExtMenuPlayer+1, kid, inputGetKeyboardIndex(kid));
+
+		nextAssign();
+		return 0;
+	}
+	else if (key == VK_BACKSPACE) {
+		menuPopDialog();
+		return 0;
+	}
+	else if (key == VK_DELETE) {
+		inputSetPlayerMouseID(g_ExtMenuPlayer, 0);
+		inputSetPlayerKeyboardID(g_ExtMenuPlayer, 0);
+
+		sysLogPrintf(LOG_NOTE, "CLEARED %d", g_ExtMenuPlayer+1);
+
+		nextAssign();
+		return 0;
+	}
+
+	u32 kid = inputGetLastKeyboardID();
+	s32 kidx = inputGetKeyboardIndex(kid);
+
+	const int MAXLEN = 28;
+	char shortMousename[64];
+	char shortKBname[64];
+
+	const char *kbname = inputGetKeyboardName(kid);
+
+	u32 mid = inputGetLastMouseID();
+	s32 midx = inputGetMouseIndex(mid);
+
+	const char *mousename = inputGetMouseName(mid);
+
+	makeDeviceName(kidx, shortKBname, kbname, MAXLEN);
+	makeDeviceName(midx, shortMousename, mousename, MAXLEN);
+	sprintf(g_MnKAssignedKeyboard, "Keyboard: %s\nMouse:    %s\n",
+			shortKBname, shortMousename);
+
+	g_ExtendedMnkAssignMenuItems[0].param2 = (uintptr_t)g_MnKAssignedKeyboard;
+	inputClearLastKey();
+
+	lastMouseID = mid;
+	lastKeyboardID = kid;
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerMnKAssign(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKDISABLED) {
+		return !inputGetManyMnKEnabled();
+	}
+	else if (operation == MENUOP_SET) {
+		if (item->param != 0) {
+			g_ExtMenuPlayer = item->param - 1;
+			g_ExtMnKAssignAll = false;
+		}
+		else {
+			g_ExtMenuPlayer = 0;
+			g_ExtMnKAssignAll = true;
+		}
+
+		updateMnKAssignMenuTitle();
+		inputClearLastKey();
+		menuPushDialog(&g_ExtendedMnKAssignMenuDialog);
+	}
+
+	return 0;
+}
+
+struct menuitem g_ExtendedManyMnKMenuItems[] = {
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Multiple MnK Enabled",
+		0,
+		menuhandlerMnKEnabled,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		1,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Assign Player 1\n",
+		0,
+		menuhandlerMnKAssign,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		2,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Assign Player 2\n",
+		0,
+		menuhandlerMnKAssign,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		3,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Assign Player 3\n",
+		0,
+		menuhandlerMnKAssign,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		4,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Assign Player 4\n",
+		0,
+		menuhandlerMnKAssign,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Assign All\n",
+		0,
+		menuhandlerMnKAssign,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		L_OPTIONS_213, // "Back"
+		0,
+		NULL,
+	},
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_ExtendedManyMnKMenuDialog = {
+		MENUDIALOGTYPE_DEFAULT,
+		(uintptr_t)"Multiple Mouse/KB Options",
+		g_ExtendedManyMnKMenuItems,
+		NULL,
+		MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS | MENUDIALOGFLAG_IGNOREBACK,
+		NULL,
+};
+
+
 static MenuItemHandlerResult menuhandlerOpenControllerMenu(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
@@ -1894,6 +2202,14 @@ struct menuitem g_ExtendedMenuItems[] = {
 		(uintptr_t)"Key Bindings\n",
 		0,
 		menuhandlerOpenBindsMenu,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Multiple Mouse/KB\n",
+		0,
+		(void *)&g_ExtendedManyMnKMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
